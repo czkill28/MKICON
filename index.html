@@ -245,7 +245,7 @@ function renderEventos(m){
         <button class="btn" id="btnExport">Exportar backup</button>
         <button class="btn ghost" id="btnImportTrigger">Importar backup</button>
       </div>
-      <input type="file" id="importFileInput" accept=".json,application/json" style="display:none">
+      <input type="file" id="importFileInput" accept=".json,.txt,application/json,text/plain" style="display:none">
       <div id="backupBox" style="margin-top:10px;"></div>
       ${pendingImport ? `
         <div class="card" style="margin-top:12px; border-color:var(--amber);">
@@ -784,7 +784,21 @@ async function exportBackup(){
     }catch(e){ /* segue pro próximo método */ }
   }
 
-  // 2) compartilhamento nativo do celular (Salvar em Arquivos, WhatsApp, Drive, e-mail...)
+  // 2) link de download padrão do navegador (funciona bem em site hospedado de verdade)
+  try{
+    const blob = new Blob([data], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    box.innerHTML = '<div class="sub" style="color:var(--teal); font-size:.8rem;">Download iniciado! Confira a pasta Downloads do celular.</div>';
+    return;
+  }catch(e){ /* segue pro próximo método */ }
+
+  // 3) compartilhamento nativo do celular (Salvar em Arquivos, WhatsApp, Drive, e-mail...)
   try{
     const file = new File([data], filename, {type:'application/json'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
@@ -796,7 +810,7 @@ async function exportBackup(){
     if(e && e.name === 'AbortError'){ box.innerHTML = ''; return; } // usuário cancelou o compartilhamento
   }
 
-  // 3) copiar para a área de transferência (com fallback de seleção manual)
+  // 4) copiar para a área de transferência (com fallback de seleção manual)
   box.innerHTML = `<div class="field"><label>Não deu pra salvar ou compartilhar automaticamente. Copie o backup:</label>
     <div class="row" style="margin:8px 0;"><button class="btn ghost" id="btnCopyBackup">Copiar backup</button></div>
     <textarea readonly style="width:100%; min-height:160px; background:var(--bg); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:10px; font-family:inherit; font-size:.78rem;">${escapeHtml(data)}</textarea></div>`;
