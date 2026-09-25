@@ -51,6 +51,9 @@ nav button .ic svg{width:100%; height:100%; stroke:currentColor; fill:none; stro
 nav button.active{color:var(--amber);}
 h2.section-title{font-size:.95rem; color:var(--amber); margin:0 0 12px; font-weight:700;}
 h3.mini-title{font-size:.78rem; color:var(--muted); margin:16px 0 8px; text-transform:uppercase; letter-spacing:.4px;}
+.group-header{width:100%; display:flex; justify-content:space-between; align-items:center; background:none; border:none; padding:12px 2px 10px; margin-top:4px; border-bottom:1px solid var(--line); color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; font-family:inherit; cursor:pointer;}
+.group-header .group-meta{color:var(--muted); font-weight:400; display:flex; align-items:center; gap:6px;}
+.group-header .chev{color:var(--amber); font-size:.85rem;}
 .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin-bottom:12px;}
 .row{display:flex; gap:8px; align-items:center;}
 input[type=text],input[type=date]{
@@ -142,6 +145,27 @@ function groupItems(items){
   });
   const names = Object.keys(groups).sort((a,b)=> a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
   return names.map(g=>({grupo:g, items: sortByName(groups[g])}));
+}
+
+let collapsedGroups = {};
+function isGroupCollapsed(screenKey, grupo){ return !!collapsedGroups[screenKey+'::'+grupo]; }
+function toggleGroupCollapsed(screenKey, grupo){
+  const k = screenKey+'::'+grupo;
+  collapsedGroups[k] = !collapsedGroups[k];
+}
+function renderGroupedList(container, itemsList, screenKey, itemRenderFn, rerenderFn){
+  groupItems(itemsList).forEach(g=>{
+    const collapsed = isGroupCollapsed(screenKey, g.grupo);
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'group-header';
+    header.innerHTML = `<span>${escapeHtml(g.grupo)}</span><span class="group-meta">${g.items.length} <span class="chev">${collapsed?'▸':'▾'}</span></span>`;
+    header.addEventListener('click', ()=>{ toggleGroupCollapsed(screenKey, g.grupo); rerenderFn(); });
+    container.appendChild(header);
+    if(!collapsed){
+      g.items.forEach(it=> container.appendChild(itemRenderFn(it)));
+    }
+  });
 }
 
 function freshDb(){ return {catalog:[], categoryCatalog:[...CATS_DEFAULT], categoryPresets: JSON.parse(JSON.stringify(PRESETS_DEFAULT)), events:[], activeId:null}; }
@@ -290,25 +314,21 @@ function renderEventos(m){
   if(cancelImportBtn) cancelImportBtn.addEventListener('click', ()=>{ pendingImport = null; render(); });
 
   const newList = document.getElementById('newEvItemList');
-  groupItems(db.catalog).forEach(g=>{
-    const h = document.createElement('h3');
-    h.className = 'mini-title';
-    h.style.marginTop = '10px';
-    h.textContent = g.grupo;
-    newList.appendChild(h);
-    g.items.forEach(it=>{
+  function renderNewEventItemList(){
+    newList.innerHTML = '';
+    renderGroupedList(newList, db.catalog, 'newEvent', (it)=>{
       const row = document.createElement('div');
       row.className = 'item-row';
       const checked = newEventItemIds.includes(it.id);
       row.innerHTML = `<div class="left"><input type="checkbox" data-newid="${it.id}" ${checked?'checked':''}><span>${escapeHtml(it.name)}</span></div>`;
-      newList.appendChild(row);
-    });
-  });
-  newList.querySelectorAll('[data-newid]').forEach(cb=>cb.addEventListener('change',()=>{
-    const id = cb.dataset.newid;
-    if(cb.checked){ if(!newEventItemIds.includes(id)) newEventItemIds.push(id); }
-    else{ newEventItemIds = newEventItemIds.filter(i=>i!==id); }
-  }));
+      row.querySelector('input').addEventListener('change', (e)=>{
+        if(e.target.checked){ if(!newEventItemIds.includes(it.id)) newEventItemIds.push(it.id); }
+        else{ newEventItemIds = newEventItemIds.filter(i=>i!==it.id); }
+      });
+      return row;
+    }, renderNewEventItemList);
+  }
+  renderNewEventItemList();
 
   const list = document.getElementById('evList');
   db.events.slice().reverse().forEach(e=>{
@@ -417,12 +437,10 @@ function renderItens(m){
     const o = document.createElement('option'); o.value = g; groupList.appendChild(o);
   });
   const list = document.getElementById('catalogList');
-  groupItems(db.catalog).forEach(g=>{
-    const h = document.createElement('h3');
-    h.className = 'mini-title';
-    h.textContent = g.grupo;
-    list.appendChild(h);
-    g.items.forEach(it=>{
+  function renderCatalogList(){
+    list.innerHTML = '';
+    if(!db.catalog.length){ list.innerHTML = '<div class="empty">Nenhum item na base ainda.</div>'; return; }
+    renderGroupedList(list, db.catalog, 'catalog', (it)=>{
       const row = document.createElement('div');
       if(editingItemId === it.id){
         row.className = 'card';
@@ -451,37 +469,35 @@ function renderItens(m){
             <button class="iconbtn" data-del="${it.id}">🗑️</button>
           </div>`;
       }
-      list.appendChild(row);
-    });
-  });
-  list.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>{
-    editingItemId = b.dataset.edit; confirmDeleteItemId = null; render();
-  }));
-  list.querySelectorAll('[data-cancel-edit]').forEach(b=>b.addEventListener('click',()=>{
-    editingItemId = null; render();
-  }));
-  list.querySelectorAll('[data-save]').forEach(b=>b.addEventListener('click',()=>{
-    const id = b.dataset.save;
-    const it = db.catalog.find(c=>c.id===id);
-    const nameInp = document.getElementById('editName_'+id);
-    const groupInp = document.getElementById('editGroup_'+id);
-    const newName = nameInp.value.trim();
-    if(!newName){ nameInp.focus(); return; }
-    it.name = newName; it.grupo = groupInp.value.trim();
-    editingItemId = null; save(); render();
-  }));
-  list.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
-    confirmDeleteItemId = b.dataset.del; editingItemId = null; render();
-  }));
-  list.querySelectorAll('[data-canceldel]').forEach(b=>b.addEventListener('click',()=>{
-    confirmDeleteItemId = null; render();
-  }));
-  list.querySelectorAll('[data-confirmdel]').forEach(b=>b.addEventListener('click',()=>{
-    const id = b.dataset.confirmdel;
-    db.catalog = db.catalog.filter(c=>c.id!==id);
-    db.events.forEach(e=>{ e.itemIds = e.itemIds.filter(i=>i!==id); });
-    confirmDeleteItemId = null; save(); render();
-  }));
+      row.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>{
+        editingItemId = it.id; confirmDeleteItemId = null; renderCatalogList();
+      }));
+      row.querySelectorAll('[data-cancel-edit]').forEach(b=>b.addEventListener('click',()=>{
+        editingItemId = null; renderCatalogList();
+      }));
+      row.querySelectorAll('[data-save]').forEach(b=>b.addEventListener('click',()=>{
+        const nameInp = document.getElementById('editName_'+it.id);
+        const groupInp = document.getElementById('editGroup_'+it.id);
+        const newName = nameInp.value.trim();
+        if(!newName){ nameInp.focus(); return; }
+        it.name = newName; it.grupo = groupInp.value.trim();
+        editingItemId = null; save(); renderCatalogList();
+      }));
+      row.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
+        confirmDeleteItemId = it.id; editingItemId = null; renderCatalogList();
+      }));
+      row.querySelectorAll('[data-canceldel]').forEach(b=>b.addEventListener('click',()=>{
+        confirmDeleteItemId = null; renderCatalogList();
+      }));
+      row.querySelectorAll('[data-confirmdel]').forEach(b=>b.addEventListener('click',()=>{
+        db.catalog = db.catalog.filter(c=>c.id!==it.id);
+        db.events.forEach(e=>{ e.itemIds = e.itemIds.filter(i=>i!==it.id); });
+        confirmDeleteItemId = null; save(); renderCatalogList();
+      }));
+      return row;
+    }, renderCatalogList);
+  }
+  renderCatalogList();
   document.getElementById('btnAddItem').addEventListener('click', addItem);
   document.getElementById('newItemName').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('newItemGroup').focus(); });
   document.getElementById('newItemGroup').addEventListener('keydown', e=>{ if(e.key==='Enter') addItem(); });
@@ -511,33 +527,26 @@ function renderEventItems(m, eventId){
   ev.initialStock = ev.initialStock || {};
   document.getElementById('btnBackEv').addEventListener('click', ()=>{ tab='eventos'; render(); });
   const list = document.getElementById('evItemList');
-  groupItems(db.catalog).forEach(g=>{
-    const h = document.createElement('h3');
-    h.className = 'mini-title';
-    h.textContent = g.grupo;
-    list.appendChild(h);
-    g.items.forEach(it=>{
-      const row = document.createElement('div');
-      row.className = 'item-row';
-      const checked = ev.itemIds.includes(it.id);
-      const inicial = ev.initialStock[it.id];
-      row.innerHTML = `
-        <div class="left"><input type="checkbox" data-id="${it.id}" ${checked?'checked':''}><span>${escapeHtml(it.name)}</span></div>
-        <input type="number" inputmode="numeric" data-initid="${it.id}" value="${(inicial!==undefined && inicial!==null)?inicial:''}" placeholder="Estoque inicial" ${checked?'':'disabled'} style="width:110px; background:var(--bg); border:1px solid var(--line); color:var(--text); padding:8px 9px; border-radius:9px; font-size:.85rem; text-align:right; flex-shrink:0;">`;
-      list.appendChild(row);
+  const rerenderEvItems = ()=> renderEventItems(m, eventId);
+  renderGroupedList(list, db.catalog, 'eventItems:'+eventId, (it)=>{
+    const row = document.createElement('div');
+    row.className = 'item-row';
+    const checked = ev.itemIds.includes(it.id);
+    const inicial = ev.initialStock[it.id];
+    row.innerHTML = `
+      <div class="left"><input type="checkbox" data-id="${it.id}" ${checked?'checked':''}><span>${escapeHtml(it.name)}</span></div>
+      <input type="number" inputmode="numeric" data-initid="${it.id}" value="${(inicial!==undefined && inicial!==null)?inicial:''}" placeholder="Estoque inicial" ${checked?'':'disabled'} style="width:110px; background:var(--bg); border:1px solid var(--line); color:var(--text); padding:8px 9px; border-radius:9px; font-size:.85rem; text-align:right; flex-shrink:0;">`;
+    row.querySelector('[data-initid]').addEventListener('change', (e)=>{
+      if(e.target.value===''){ delete ev.initialStock[it.id]; } else { ev.initialStock[it.id] = Number(e.target.value); }
+      save();
     });
-  });
-  list.querySelectorAll('[data-initid]').forEach(inp=>inp.addEventListener('change',()=>{
-    const id = inp.dataset.initid;
-    if(inp.value===''){ delete ev.initialStock[id]; } else { ev.initialStock[id] = Number(inp.value); }
-    save();
-  }));
-  list.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.addEventListener('change',()=>{
-    const id = cb.dataset.id;
-    if(cb.checked){ if(!ev.itemIds.includes(id)) ev.itemIds.push(id); }
-    else{ ev.itemIds = ev.itemIds.filter(i=>i!==id); }
-    save(); renderEventItems(m, eventId);
-  }));
+    row.querySelector('input[type=checkbox]').addEventListener('change', (e)=>{
+      if(e.target.checked){ if(!ev.itemIds.includes(it.id)) ev.itemIds.push(it.id); }
+      else{ ev.itemIds = ev.itemIds.filter(i=>i!==it.id); }
+      save(); rerenderEvItems();
+    });
+    return row;
+  }, rerenderEvItems);
 }
 
 /* ---------- REGISTRAR ---------- */
@@ -707,37 +716,31 @@ function renderRegistrar(m){
       return;
     }
     const catalogForEvent = ev.itemIds.map(id=>catalogItem(id)).filter(Boolean);
-    groupItems(catalogForEvent).forEach(g=>{
-      const h = document.createElement('h3');
-      h.className = 'mini-title';
-      h.textContent = g.grupo;
-      list.appendChild(h);
-      g.items.forEach(it=>{
-        const en = findEntry(ev, regCategory, person, it.id);
-        const qty = en ? en.qty : 0;
-        const row = document.createElement('div');
-        row.className = 'item-row';
-        row.innerHTML = `
-          <span class="iname">${escapeHtml(it.name)}</span>
-          <div class="stepper">
-            <button data-d="-1">−</button>
-            <input type="number" inputmode="numeric" class="qty-input" value="${qty}">
-            <button data-d="1">+</button>
-          </div>`;
-        row.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
-          const hadPerson = ev.knownPeople && ev.knownPeople[regCategory] && ev.knownPeople[regCategory].includes(person);
-          changeQty(ev, regCategory, person, it.id, parseInt(b.dataset.d));
-          if(!hadPerson) render(); else renderStepList();
-        }));
-        const qtyInput = row.querySelector('.qty-input');
-        qtyInput.addEventListener('change', ()=>{
-          const hadPerson = ev.knownPeople && ev.knownPeople[regCategory] && ev.knownPeople[regCategory].includes(person);
-          setQty(ev, regCategory, person, it.id, qtyInput.value);
-          if(!hadPerson) render(); else renderStepList();
-        });
-        list.appendChild(row);
+    renderGroupedList(list, catalogForEvent, 'registrar:'+ev.id, (it)=>{
+      const en = findEntry(ev, regCategory, person, it.id);
+      const qty = en ? en.qty : 0;
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.innerHTML = `
+        <span class="iname">${escapeHtml(it.name)}</span>
+        <div class="stepper">
+          <button data-d="-1">−</button>
+          <input type="number" inputmode="numeric" class="qty-input" value="${qty}">
+          <button data-d="1">+</button>
+        </div>`;
+      row.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+        const hadPerson = ev.knownPeople && ev.knownPeople[regCategory] && ev.knownPeople[regCategory].includes(person);
+        changeQty(ev, regCategory, person, it.id, parseInt(b.dataset.d));
+        if(!hadPerson) render(); else renderStepList();
+      }));
+      const qtyInput = row.querySelector('.qty-input');
+      qtyInput.addEventListener('change', ()=>{
+        const hadPerson = ev.knownPeople && ev.knownPeople[regCategory] && ev.knownPeople[regCategory].includes(person);
+        setQty(ev, regCategory, person, it.id, qtyInput.value);
+        if(!hadPerson) render(); else renderStepList();
       });
-    });
+      return row;
+    }, renderStepList);
   }
 }
 
@@ -757,12 +760,9 @@ function renderFechamento(m){
 
   const list = document.getElementById('closingList');
   const catalogForEvent = ev.itemIds.map(id=>catalogItem(id)).filter(Boolean);
-  groupItems(catalogForEvent).forEach(g=>{
-    const h = document.createElement('h3');
-    h.className = 'mini-title';
-    h.textContent = g.grupo;
-    list.appendChild(h);
-    g.items.forEach(it=>{
+  function renderClosingList(){
+    list.innerHTML = '';
+    renderGroupedList(list, catalogForEvent, 'fechamento:'+ev.id, (it)=>{
       const inicialRaw = ev.initialStock[it.id];
       const hasInicial = inicialRaw!==undefined && inicialRaw!==null && inicialRaw!=='';
       const consumido = totalConsumedForItem(ev, it.id);
@@ -783,18 +783,16 @@ function renderFechamento(m){
         </div>
         <input type="number" inputmode="numeric" data-closeid="${it.id}" value="${hasContagem?contagemRaw:''}" placeholder="Contagem" style="width:92px; background:var(--bg); border:1px solid var(--line); color:var(--text); padding:9px 10px; border-radius:10px; font-size:1rem; text-align:right; flex-shrink:0;">
       `;
-      list.appendChild(row);
-    });
-  });
-
-  list.querySelectorAll('[data-closeid]').forEach(inp=>{
-    inp.addEventListener('input', ()=>{
-      const id = inp.dataset.closeid;
-      if(inp.value===''){ delete ev.closingCounts[id]; } else { ev.closingCounts[id] = Number(inp.value); }
-      save();
-    });
-    inp.addEventListener('change', ()=>{ render(); });
-  });
+      const inp = row.querySelector('[data-closeid]');
+      inp.addEventListener('input', ()=>{
+        if(inp.value===''){ delete ev.closingCounts[it.id]; } else { ev.closingCounts[it.id] = Number(inp.value); }
+        save();
+      });
+      inp.addEventListener('change', ()=>{ renderClosingList(); });
+      return row;
+    }, renderClosingList);
+  }
+  renderClosingList();
 }
 
 function renderResumo(m){
